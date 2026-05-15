@@ -72,6 +72,8 @@ def fill_distance_geo(df: pd.DataFrame,
         距离已填补的 DataFrame。
     """
     df = df.copy()
+    # 保存原始距离值（含 NaN），供地理消融实验 (run_geo_ablation) 比较不同填充策略
+    df["_dist_original"] = df["TRANSPORTATION_DISTANCE_IN_KM"].copy()
     missing_mask = df["TRANSPORTATION_DISTANCE_IN_KM"].isna()
     n_missing = int(missing_mask.sum())
     print(f"[cleaner] 运输距离缺失: {n_missing} 条")
@@ -108,12 +110,13 @@ def fill_basic_fields(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
-    # Minimum_kms
-    median_kms = df["Minimum_kms_to_be_covered_in_a_day"].median()
+    # Minimum_kms (类别变量)
     df["Minimum_kms_to_be_covered_in_a_day"] = (
-        df["Minimum_kms_to_be_covered_in_a_day"].fillna(median_kms)
+        df["Minimum_kms_to_be_covered_in_a_day"]
+        .fillna("UNKNOWN")
+        .astype(str)
     )
-    print(f"[cleaner] Minimum_kms: 用中位数 {median_kms:.1f} 填充")
+    print("[cleaner] Minimum_kms_to_be_covered_in_a_day: 类别变量，缺失值填充为 UNKNOWN")
 
     # vehicleType
     df["vehicleType"] = df["vehicleType"].fillna("Unknown")

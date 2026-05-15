@@ -212,9 +212,9 @@ __marimo__/
 # Project-specific: generated data (not committed)
 data/processed/
 
-# Project-specific: model artifacts and training output
-outputs/
+
 
 # CatBoost training artifacts (reproducible, can be regenerated)
 catboost_info/
+
 

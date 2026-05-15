@@ -1,0 +1,16 @@
+﻿feature_added,n_features,auc
+planned_days_enc,1,0.545318
+booking_prefix,2,0.661072
+GpsProvider,3,0.840477
+vehicleType,4,0.917589
+is_market,5,0.917589
+supplier_is_large,6,0.917589
+TRANSPORTATION_DISTANCE_IN_KM,7,0.903887
+start_weekday,8,0.905349
+origin_city,9,0.897807
+dest_city,10,0.901027
+OriginLocation_Code,11,0.892294
+Minimum_kms_to_be_covered_in_a_day,12,0.899497
+DestinationLocation_Code,13,0.864499
+start_month,14,0.878347
+customerID,15,0.834877

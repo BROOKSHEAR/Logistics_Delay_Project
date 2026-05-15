@@ -179,8 +179,9 @@ def run_geo_ablation(
       - **均值填充**: 所有缺失值直接使用均值填充。
 
     Args:
-        df_sorted: 经 ``load_and_prepare_data`` 处理并按时间排序的 DataFrame
-                   （含 ``_dist_original`` 列保存填充前的原始距离值）。
+        df_sorted: 经 ``load_and_prepare_data`` 处理并按时间排序的 DataFrame。
+           ``_dist_original`` 列由 ``cleaner.fill_distance_geo`` 在预处理时保存，
+           记录地理填充前的原始距离值（含 NaN），标识哪些行的距离是缺失的。
 
     Returns:
         地理消融结果 DataFrame，列:
@@ -394,7 +395,7 @@ if __name__ == "__main__":
     ablation_results = run_feature_ablation(df_sorted)
     lc_results = run_learning_curves(df_sorted, ablation_df=ablation_results)
     save_results(ablation_results, lc_results)
-
+    print(df_sorted.columns.tolist())
     geo_results = run_geo_ablation(df_sorted)
     save_geo_results(geo_results)
 

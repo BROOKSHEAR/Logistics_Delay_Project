@@ -130,7 +130,7 @@ cb_params = {
     "bagging_temperature": [0, 0.5, 1],
     "random_strength": [0, 0.5, 1],
 }
-
+#所有模型最大层数均设置为8，需要增添学习曲线验证是否合理
 # ── 第二阶段精搜的关键参数（每个模型最重要的 3 个）──
 
 RF_KEY_PARAMS = ["n_estimators", "max_depth", "min_samples_leaf"]

@@ -13,19 +13,21 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder
 
 from logistics_delay.data.cleaner import clean_data, fill_distance_geo
+from logistics_delay.utils.paths import DATA_PROCESSED
 
 # ──────────────── 特征列表常量（全局统一） ────────────────
 
 XGB_CAT_COLS = [
     "vehicleType", "OriginLocation_Code", "DestinationLocation_Code",
     "GpsProvider", "booking_prefix", "origin_city", "dest_city", "customerID",
+    "Minimum_kms_to_be_covered_in_a_day",
 ]
 
 FEATURES_ENC = [
     "TRANSPORTATION_DISTANCE_IN_KM", "vehicleType_enc", "is_market",
     "start_weekday", "start_month",
     "OriginLocation_Code_enc", "DestinationLocation_Code_enc",
-    "min_kms_bin", "planned_days_enc", "booking_prefix_enc",
+    "Minimum_kms_to_be_covered_in_a_day_enc", "planned_days_enc", "booking_prefix_enc",
     "origin_city_enc", "dest_city_enc", "customerID_enc",
     "supplier_is_large", "GpsProvider_enc",
 ]
@@ -33,7 +35,7 @@ FEATURES_ENC = [
 FEATURES_XGB = [
     "TRANSPORTATION_DISTANCE_IN_KM", "is_market",
     "start_weekday", "start_month",
-    "min_kms_bin", "planned_days_enc",
+     "planned_days_enc",
     "supplier_is_large",
 ] + XGB_CAT_COLS
 
@@ -54,20 +56,6 @@ def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["start_weekday"] = df["trip_start_date"].dt.dayofweek
     df["start_month"] = df["trip_start_date"].dt.month
-    return df
-
-
-def add_min_kms_bin(df: pd.DataFrame) -> pd.DataFrame:
-    """对 ``Minimum_kms_to_be_covered_in_a_day`` 分箱。
-
-    分箱方案: [-1, 200] → 0, (200, 250] → 1, (250, 999] → 2。
-    """
-    df = df.copy()
-    df["min_kms_bin"] = pd.cut(
-        df["Minimum_kms_to_be_covered_in_a_day"],
-        bins=[-1, 200, 250, 999],
-        labels=[0, 1, 2],
-    ).astype(float)
     return df
 
 
@@ -120,6 +108,9 @@ def encode_label_features(df: pd.DataFrame) -> pd.DataFrame:
     df["origin_city_enc"] = le.fit_transform(df["origin_city"])
     df["dest_city_enc"] = le.fit_transform(df["dest_city"])
     df["customerID_enc"] = le.fit_transform(df["customerID"])
+    df["Minimum_kms_to_be_covered_in_a_day_enc"] = le.fit_transform(
+        df["Minimum_kms_to_be_covered_in_a_day"].astype(str)
+    )
 
     return df
 
@@ -138,6 +129,7 @@ def prepare_catboost_categoricals(df: pd.DataFrame) -> pd.DataFrame:
 def engineer_features(
     df: pd.DataFrame,
     run_clean: bool = False,
+    save_processed: bool = False,
     years: list[int] | None = None,
     geo_radius: float = 3.0,
 ) -> pd.DataFrame:
@@ -170,7 +162,6 @@ def engineer_features(
         print("[engineering] 跳过清洗，使用已清洗数据")
 
     df = add_time_features(df)
-    df = add_min_kms_bin(df)
     df = add_planned_days_features(df)
     df = add_business_flags(df)
     df = encode_label_features(df)
@@ -180,4 +171,11 @@ def engineer_features(
           f"总列数: {len(df.columns)}")
     print(f"[engineering] 特征数量: {len(FEATURES_ENC)} (sklearn) / "
           f"{len(FEATURES_XGB)} (XGBoost/CatBoost)")
+
+    if save_processed:
+        DATA_PROCESSED.mkdir(parents=True, exist_ok=True)
+        path = DATA_PROCESSED / "truck_delay_handled_file.xlsx"
+        df.to_excel(path, index=False)
+        print(f"[engineering] 已保存 → {path} ({df.shape[0]} 行 × {len(df.columns)} 列)")
+
     return df
