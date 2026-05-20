@@ -28,7 +28,7 @@ FIGURES_MODELS = FIGURES_DIR / "models"
 TABLES_DIR = OUTPUTS_DIR / "tables"
 TABLES_METRICS = TABLES_DIR / "metrics"
 
-ADVICE_DIR = OUTPUTS_DIR / "advice"
+
 
 # ── 模型路径 ────────────────────────────────────
 MODELS_DIR = OUTPUTS_DIR / "models"
@@ -59,5 +59,5 @@ def check_data_exists() -> Path:
 def ensure_output_dirs() -> None:
     """确保所有输出目录存在（自动创建）。"""
     for d in [FIGURES_EDA, FIGURES_SHAP, FIGURES_MODELS,
-              TABLES_METRICS, ADVICE_DIR, MODELS_DIR]:
+              TABLES_METRICS, MODELS_DIR]:
         d.mkdir(parents=True, exist_ok=True)

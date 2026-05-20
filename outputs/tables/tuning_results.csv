@@ -1,7 +1,7 @@
 ﻿model,cv_auc,test_auc,test_f1,best_params
-LogisticRegression,0.6082424280901046,0.9167773514364423,0.7188811188811188,"{'C': 100, 'class_weight': 'balanced', 'max_iter': 1000, 'penalty': 'l2', 'solver': 'lbfgs'}"
+LogisticRegression,0.6033385698008735,0.9162772202544929,0.7188811188811188,"{'C': 100, 'class_weight': 'balanced', 'max_iter': 1000, 'penalty': 'l2', 'solver': 'lbfgs'}"
 DecisionTreeClassifier,0.631519740397219,0.8508953168044078,0.4047761194029851,"{'class_weight': None, 'criterion': 'entropy', 'max_depth': 4, 'min_samples_leaf': 50, 'min_samples_split': 10}"
 RandomForestClassifier,0.659862951220107,0.827524432638069,0.6941323345817728,"{'bootstrap': False, 'class_weight': 'balanced', 'max_depth': 15, 'max_features': 'sqrt', 'min_samples_leaf': 5, 'min_samples_split': 10, 'n_estimators': 50}"
 XGBClassifier,0.6922568586237783,0.8409541847041848,0.6832460732984293,"{'colsample_bytree': 1.0, 'gamma': 1, 'learning_rate': 0.01, 'max_depth': 8, 'min_child_weight': 3, 'n_estimators': 300, 'reg_alpha': 1, 'reg_lambda': 0.1, 'scale_pos_weight': 0.5727066532258064, 'subsample': 0.6}"
-LGBMClassifier,0.6163437923127331,0.8703498731907824,0.6534031413612565,"{'colsample_bytree': 1.0, 'learning_rate': 0.03, 'max_depth': -1, 'min_child_samples': 50, 'n_estimators': 100, 'num_leaves': 31, 'reg_alpha': 0, 'reg_lambda': 0.1, 'subsample': 0.6}"
+LGBMClassifier,0.6180358322447955,0.8635229459093094,0.651356993736952,"{'colsample_bytree': 1.0, 'learning_rate': 0.01, 'max_depth': -1, 'min_child_samples': 50, 'n_estimators': 300, 'num_leaves': 31, 'reg_alpha': 0, 'reg_lambda': 0.1, 'subsample': 0.6}"
 CatBoostClassifier,0.7438265655679411,0.8942878459923914,0.7639060568603214,"{'bagging_temperature': 1, 'border_count': 64, 'depth': 8, 'iterations': 100, 'l2_leaf_reg': 5, 'learning_rate': 0.05, 'random_strength': 0}"

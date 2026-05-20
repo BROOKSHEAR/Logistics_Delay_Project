@@ -157,12 +157,15 @@ def _bootstrap_auc(
 
     for i in range(n_resamples):
         idx = rng.integers(0, n, n)
-        aucs[i] = roc_auc_score(yt[idx], yp[idx])
+        if len(np.unique(yt[idx])) < 2:
+            aucs[i] = np.nan
+        else:
+            aucs[i] = roc_auc_score(yt[idx], yp[idx])
 
     return (
-        float(np.mean(aucs)),
-        float(np.percentile(aucs, 2.5)),
-        float(np.percentile(aucs, 97.5)),
+        float(np.nanmean(aucs)),
+        float(np.nanpercentile(aucs, 2.5)),
+        float(np.nanpercentile(aucs, 97.5)),
         aucs,
     )
 
@@ -212,8 +215,9 @@ def run_comparison(
     # ── 存储折中的结果 ──
     fold_auc_point: dict[str, list[float]] = {m: [] for m in models}
     fold_bs_pool: dict[str, list[np.ndarray]] = {m: [] for m in models}
+    fold_details: list[dict] = []  # 每折每模型 AUC + CI
 
-    for train_idx, test_idx, label in folds:
+    for fold_idx, (train_idx, test_idx, label) in enumerate(folds):
         df_tr = df_sorted.loc[train_idx]
         df_te = df_sorted.loc[test_idx]
         y_train = df_tr["Answer"]
@@ -224,6 +228,9 @@ def run_comparison(
 
         print(f"\n  [{label}]  train={len(df_tr)}  test={len(df_te)}  "
               f"spw={spw:.4f}")
+
+        # 同折内所有模型共用同一个 bootstrap 种子，确保公平对比
+        bootstrap_seed = seed + fold_idx
 
         for mname in models:
             try:
@@ -241,11 +248,18 @@ def run_comparison(
                 y_prob = model.predict_proba(X_te)[:, 1]
                 auc_point = float(roc_auc_score(y_test, y_prob))
                 _, ci_low, ci_high, bs_samples = _bootstrap_auc(
-                    y_test, y_prob, n_bootstrap, seed + hash(mname) % 10000,
+                    y_test, y_prob, n_bootstrap, bootstrap_seed,
                 )
 
                 fold_auc_point[mname].append(auc_point)
                 fold_bs_pool[mname].append(bs_samples)
+                fold_details.append({
+                    "fold": label,
+                    "model": mname,
+                    "auc": auc_point,
+                    "ci_lower": ci_low,
+                    "ci_upper": ci_high,
+                })
                 print(f"    {mname:<20s}  AUC={auc_point:.4f}  "
                       f"95%CI=[{ci_low:.4f}, {ci_high:.4f}]")
             except Exception as exc:
@@ -327,4 +341,5 @@ def run_comparison(
         "rankings_df":  rank_dist,
         "win_matrix":   win_mat,
         "fold_aucs":    auc_mat,
+        "fold_details": pd.DataFrame(fold_details),
     }

@@ -209,9 +209,9 @@ def run_geo_ablation(
         "mean": mean_val,
     }
     strategy_labels = {
-        "geo": "地理填充 (Geo)",
-        "median": "中位数填充 (Median)",
-        "mean": "均值填充 (Mean)",
+        "geo": "Geo",
+        "median": "Median",
+        "mean": "Mean",
     }
 
     feature_list = FEATURES_XGB
