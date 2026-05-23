@@ -1,11 +1,11 @@
 """
-两阶段超参数调优模块。
+Two-stage hyperparameter tuning module.
 
-第一阶段: LogisticRegression + DecisionTree 用 GridSearchCV + TimeSeriesSplit 穷举。
-第二阶段: RandomForest + XGBoost + LightGBM + CatBoost 用 RandomizedSearchCV 粗搜
-          + 精细网格 GridSearchCV 精搜 (3 关键参数 × 3 候选 = ≤27 组合)。
+Stage 1: LogisticRegression + DecisionTree with GridSearchCV + TimeSeriesSplit exhaustive search.
+Stage 2: RandomForest + XGBoost + LightGBM + CatBoost with RandomizedSearchCV coarse
+          + fine GridSearchCV (3 key params × 3 candidates = ≤27 combos).
 
-用法:
+Usage:
     from logistics_delay.models.tuning import (
         compute_and_print_spw, run_grid_search, run_two_stage_search, refine_grid,
         lr_params_group, dt_params, rf_params, xgb_params, lgbm_params, cb_params,
@@ -35,10 +35,10 @@ warnings.filterwarnings("ignore")
 
 
 # ════════════════════════════════════════════════════════════════
-#  参数空间定义
+#  Parameter space definition
 # ════════════════════════════════════════════════════════════════
 
-# ── 逻辑回归: 三个 param_grid 避免 penalty/solver 非法组合 ──
+# ── LogisticRegression: three param_grids to avoid illegal penalty/solver combos ──
 
 _LR_C = [0.001, 0.01, 0.1, 1, 10, 100]
 _LR_CW = [None, "balanced"]
@@ -69,7 +69,7 @@ lr_params_group = [
     },
 ]
 
-# ── 决策树 ──
+# ── DecisionTree ──
 
 dt_params = {
     "max_depth": [3, 4, 5, 6, 8],
@@ -79,7 +79,7 @@ dt_params = {
     "class_weight": ["balanced", None],
 }
 
-# ── 随机森林（完整参数空间）──
+# ── RandomForest (full param space) ──
 
 rf_params = {
     "n_estimators": [50, 100, 200, 300, 500],
@@ -91,7 +91,7 @@ rf_params = {
     "class_weight": ["balanced", "balanced_subsample", None],
 }
 
-# ── XGBoost（完整参数空间, scale_pos_weight 由 spw_t 动态注入）──
+# ── XGBoost (full param space, scale_pos_weight injected dynamically by spw_t) ──
 
 xgb_params = {
     "learning_rate": [0.01, 0.03, 0.05, 0.1, 0.2],
@@ -105,7 +105,7 @@ xgb_params = {
     "reg_lambda": [0.1, 1, 10, 100],
 }
 
-# ── LightGBM（完整参数空间）──
+# ── LightGBM (full param space) ──
 
 lgbm_params = {
     "learning_rate": [0.01, 0.03, 0.05, 0.1, 0.2],
@@ -119,7 +119,7 @@ lgbm_params = {
     "reg_lambda": [0.1, 1, 10, 100],
 }
 
-# ── CatBoost（完整参数空间）──
+# ── CatBoost (full param space) ──
 
 cb_params = {
     "learning_rate": [0.03, 0.05, 0.1],
@@ -130,8 +130,8 @@ cb_params = {
     "bagging_temperature": [0, 0.5, 1],
     "random_strength": [0, 0.5, 1],
 }
-#所有模型最大层数均设置为8，需要增添学习曲线验证是否合理
-# ── 第二阶段精搜的关键参数（每个模型最重要的 3 个）──
+# All models have max_depth/depth capped at 8; verify with learning curves
+# ── Key params for Stage 2 fine search (top 3 per model) ──
 
 RF_KEY_PARAMS = ["n_estimators", "max_depth", "min_samples_leaf"]
 XGB_KEY_PARAMS = ["learning_rate", "max_depth", "n_estimators"]
@@ -140,23 +140,23 @@ CB_KEY_PARAMS = ["learning_rate", "depth", "iterations"]
 
 
 # ════════════════════════════════════════════════════════════════
-#  工具函数
+#  Utility functions
 # ════════════════════════════════════════════════════════════════
 
 def compute_and_print_spw(y_train, n_splits=5):
-    """计算 spw 并打印训练集样本分布和 TimeSeriesSplit 各 fold 延误率。
+    """Compute spw and print training set sample distribution and per-fold delay rate.
 
     Args:
-        y_train: 训练集标签 (pd.Series 或 array-like)。
-        n_splits: TimeSeriesSplit 折数。
+        y_train: Training labels (pd.Series or array-like).
+        n_splits: Number of TimeSeriesSplit folds.
 
     Returns:
-        (spw_t, spw_candidates) 元组:
-        - spw_t: 负样本数 / 正样本数
+        (spw_t, spw_candidates) tuple:
+        - spw_t: negative count / positive count
         - spw_candidates: [spw_t*0.5, 0.75, 1.0, 1.25, 1.5]
     """
     print("=" * 60)
-    print("  样本分布与 scale_pos_weight 计算")
+    print("  Sample distribution and scale_pos_weight computation")
     print("=" * 60)
 
     n_pos = int((y_train == 1).sum())
@@ -164,14 +164,14 @@ def compute_and_print_spw(y_train, n_splits=5):
     total = len(y_train)
     spw_t = n_neg / n_pos if n_pos > 0 else 1.0
 
-    print(f"\n训练集样本分布:")
-    print(f"  总样本: {total}")
-    print(f"  正样本 (延误): {n_pos} ({n_pos / total * 100:.2f}%)")
-    print(f"  负样本 (准时): {n_neg} ({n_neg / total * 100:.2f}%)")
-    print(f"  spw_t (负/正) = {spw_t:.4f}")
+    print(f"\nTraining set sample distribution:")
+    print(f"  Total: {total}")
+    print(f"  Positive (delayed): {n_pos} ({n_pos / total * 100:.2f}%)")
+    print(f"  Negative (on-time): {n_neg} ({n_neg / total * 100:.2f}%)")
+    print(f"  spw_t (neg/pos) = {spw_t:.4f}")
 
-    print(f"\nTimeSeriesSplit({n_splits} folds) 各 fold 延误率:")
-    print(f"  {'Fold':<6} {'训练延误率':<14} {'验证延误率':<14} {'验证正样本比'}")
+    print(f"\nTimeSeriesSplit({n_splits} folds) per-fold delay rate:")
+    print(f"  {'Fold':<6} {'Train delay':<14} {'Val delay':<14} {'Val pos rate'}")
     print(f"  {'-' * 54}")
 
     dummy_X = np.zeros(len(y_train))
@@ -185,27 +185,27 @@ def compute_and_print_spw(y_train, n_splits=5):
         print(f"  Fold {i:<2}  {tr_rate:<12.2f}%  {vl_rate:<12.2f}%  {vl_pos:.2f}%")
 
     spw_candidates = [spw_t * m for m in [0.5, 0.75, 1.0, 1.25, 1.5]]
-    print(f"\n动态生成的 scale_pos_weight 候选值:")
+    print(f"\nDynamically generated scale_pos_weight candidates:")
     print(f"  {', '.join(f'{v:.4f}' for v in spw_candidates)}")
-    print(f"  生成规则: [spw_t×0.5, spw_t×0.75, spw_t×1.0, spw_t×1.25, spw_t×1.5]")
+    print(f"  Rule: [spw_t×0.5, spw_t×0.75, spw_t×1.0, spw_t×1.25, spw_t×1.5]")
 
     return spw_t, spw_candidates
 
 
 def refine_grid(best_params, param_dist, key_params):
-    """根据粗搜 best_params 生成精细网格。
+    """Generate fine grid from coarse search best_params.
 
-    对 ``key_params`` 中的每个参数，从 ``param_dist`` 原始候选值中
-    取最优值及其左右相邻各一个（共 ≤3 个值）；边界时向有值方向扩展。
-    非关键参数全部固定为 ``best_params`` 中的最优值。
+    For each param in ``key_params``, take the best value and its left/right
+    neighbors from ``param_dist`` (≤3 values total); at boundaries, expand
+    toward available values. Non-key params are fixed to ``best_params``.
 
     Args:
-        best_params: 粗搜输出的 ``best_params_`` (dict)。
-        param_dist: 粗搜参数分布 (dict, 值须为 list-like)。
-        key_params: 需要精细搜索的关键参数名列表 (3 个)。
+        best_params: ``best_params_`` from coarse search (dict).
+        param_dist: Coarse search param distribution (dict, values must be list-like).
+        key_params: Names of the 3 key params for fine search.
 
     Returns:
-        dict, 可作为 ``GridSearchCV`` 的 ``param_grid``。
+        dict, usable as ``param_grid`` for ``GridSearchCV``.
     """
     fine_grid = {}
 
@@ -216,7 +216,7 @@ def refine_grid(best_params, param_dist, key_params):
             continue
 
         best_val = best_params[param]
-        # 找到最优值在候选列表中的位置
+        # Find position of best value in candidate list
         try:
             idx = candidates.index(best_val)
         except ValueError:
@@ -233,7 +233,7 @@ def refine_grid(best_params, param_dist, key_params):
 
         fine_grid[param] = candidates[start:end]
 
-    # 非关键参数固定为最优值
+    # Non-key params fixed to best value
     for param, val in best_params.items():
         if param not in key_params:
             fine_grid[param] = [val]
@@ -242,22 +242,22 @@ def refine_grid(best_params, param_dist, key_params):
 
 
 # ════════════════════════════════════════════════════════════════
-#  第一阶段: GridSearchCV 穷举
+#  Stage 1: GridSearchCV exhaustive
 # ════════════════════════════════════════════════════════════════
 
 def run_grid_search(model, param_grid, X_train, y_train, X_test, y_test):
-    """``GridSearchCV`` + ``TimeSeriesSplit(n_splits=5)`` 穷举搜索。
+    """Exhaustive search with ``GridSearchCV`` + ``TimeSeriesSplit(n_splits=5)``.
 
     Args:
-        model: 未拟合的 sklearn 模型实例。
-        param_grid: ``GridSearchCV`` 的 ``param_grid`` (dict 或 list of dicts)。
-        X_train: 训练特征。
-        y_train: 训练标签。
-        X_test: 测试特征。
-        y_test: 测试标签。
+        model: Unfitted sklearn model instance.
+        param_grid: ``param_grid`` for ``GridSearchCV`` (dict or list of dicts).
+        X_train: Training features.
+        y_train: Training labels.
+        X_test: Test features.
+        y_test: Test labels.
 
     Returns:
-        dict, 含 ``model``, ``cv_auc``, ``test_auc``, ``test_f1``, ``best_params``。
+        dict with keys ``model``, ``cv_auc``, ``test_auc``, ``test_f1``, ``best_params``.
     """
     model_name = type(model).__name__
     tscv = TimeSeriesSplit(n_splits=5)
@@ -289,7 +289,7 @@ def run_grid_search(model, param_grid, X_train, y_train, X_test, y_test):
 
 
 # ════════════════════════════════════════════════════════════════
-#  第二阶段: RandomizedSearchCV 粗搜 → GridSearchCV 精搜
+#  Stage 2: RandomizedSearchCV coarse → GridSearchCV fine
 # ════════════════════════════════════════════════════════════════
 
 def run_two_stage_search(
@@ -304,32 +304,32 @@ def run_two_stage_search(
     fit_params=None,
     seed=SEED,
 ):
-    """两阶段搜索: ``RandomizedSearchCV`` 粗搜 + 精细网格 ``GridSearchCV`` 精搜。
+    """Two-stage search: ``RandomizedSearchCV`` coarse + fine ``GridSearchCV``.
 
-    精搜只对 ``key_params`` 中的 3 个参数在最优值相邻档位搜索，
-    其余参数全部固定为粗搜的 ``best_params_``，总组合数 ≤ 27。
+    Fine search only explores neighbor values around the best for ``key_params``;
+    all other params are fixed to ``best_params_`` from coarse search (≤27 combos).
 
     Args:
-        model: 未拟合的模型实例。
-        param_dist: 粗搜参数分布 (dict, 值须为 list-like)。
-        key_params: 精搜的 3 个关键参数名列表。
-        n_iter: ``RandomizedSearchCV`` 采样次数。
-        X_train: 训练特征。
-        y_train: 训练标签。
-        X_test: 测试特征。
-        y_test: 测试标签。
-        fit_params: 传给 ``.fit()`` 的额外参数 (如 CatBoost 的 ``cat_features``)。
-        seed: 随机种子。
+        model: Unfitted model instance.
+        param_dist: Coarse search param distribution (dict, values must be list-like).
+        key_params: List of 3 key param names for fine search.
+        n_iter: ``RandomizedSearchCV`` sampling iterations.
+        X_train: Training features.
+        y_train: Training labels.
+        X_test: Test features.
+        y_test: Test labels.
+        fit_params: Extra params for ``.fit()`` (e.g., CatBoost ``cat_features``).
+        seed: Random seed.
 
     Returns:
-        dict, 含 ``model``, ``cv_auc``, ``test_auc``, ``test_f1``, ``best_params``。
+        dict with keys ``model``, ``cv_auc``, ``test_auc``, ``test_f1``, ``best_params``.
     """
     model_name = type(model).__name__
     tscv = TimeSeriesSplit(n_splits=5)
 
-    # ── Stage 1: 粗搜 ──
+    # ── Stage 1: Coarse search ──
     print(f"\n{'=' * 60}")
-    print(f"  阶段 1/2 — 随机搜索: {model_name} (n_iter={n_iter})")
+    print(f"  Stage 1/2 — Random search: {model_name} (n_iter={n_iter})")
     print(f"{'=' * 60}")
 
     rs = RandomizedSearchCV(
@@ -342,25 +342,25 @@ def run_two_stage_search(
         random_state=seed,
     )
     rs.fit(X_train, y_train, **(fit_params or {}))
-    print(f"  [粗搜] 最佳 CV AUC = {rs.best_score_ * 100:.2f}%")
+    print(f"  [Coarse] Best CV AUC = {rs.best_score_ * 100:.2f}%")
     for k, v in rs.best_params_.items():
         print(f"    {k}: {v}")
 
-    # ── Stage 2: 精搜 ──
+    # ── Stage 2: Fine search ──
     print(f"\n{'=' * 60}")
-    print(f"  阶段 2/2 — 精细网格搜索: {model_name}")
+    print(f"  Stage 2/2 — Fine grid search: {model_name}")
     print(f"{'=' * 60}")
 
     fine_grid = refine_grid(rs.best_params_, param_dist, key_params)
     total_combos = 1
     for k in key_params:
         total_combos *= len(fine_grid[k])
-    print(f"  精细网格 {len(key_params)} 关键参数 × {total_combos} 种组合:")
+    print(f"  Fine grid: {len(key_params)} key params × {total_combos} combos:")
     for k in key_params:
         print(f"    {k}: {fine_grid[k]}")
     for k, v in fine_grid.items():
         if k not in key_params:
-            print(f"    {k}: 固定为 {v[0]}")
+            print(f"    {k}: fixed to {v[0]}")
 
     stage2_model = clone(rs.best_estimator_)
     gs = GridSearchCV(
@@ -371,7 +371,7 @@ def run_two_stage_search(
         n_jobs=-1,
     )
     gs.fit(X_train, y_train, **(fit_params or {}))
-    print(f"  [精搜] 最佳 CV AUC = {gs.best_score_ * 100:.2f}%")
+    print(f"  [Fine] Best CV AUC = {gs.best_score_ * 100:.2f}%")
 
     best = gs.best_estimator_
     y_pred = best.predict(X_test)
@@ -385,7 +385,7 @@ def run_two_stage_search(
         "best_params": gs.best_params_,
     }
 
-    print(f"\n  ✅ {model_name} 完成")
+    print(f"\n  [OK] {model_name} complete")
     print(f"     CV AUC  = {result['cv_auc'] * 100:.2f}%")
     print(f"     Test AUC = {result['test_auc'] * 100:.2f}%")
     print(f"     Test F1  = {result['test_f1']:.4f}")
@@ -394,20 +394,20 @@ def run_two_stage_search(
 
 
 # ════════════════════════════════════════════════════════════════
-#  结果保存
+#  Save results
 # ════════════════════════════════════════════════════════════════
 
 def save_tuning_results(results_df, save_dir=None):
-    """将调参结果保存为 CSV。
+    """Save tuning results to CSV.
 
     Args:
-        results_df: ``run_grid_search`` / ``run_two_stage_search``
-                    返回的 dict 汇总成的 DataFrame。
-        save_dir: 保存目录 (默认 ``TABLES_DIR``)。
+        results_df: DataFrame summarized from dicts returned by
+                    ``run_grid_search`` / ``run_two_stage_search``.
+        save_dir: Save directory (default ``TABLES_DIR``).
     """
     if save_dir is None:
         save_dir = TABLES_DIR
     os.makedirs(save_dir, exist_ok=True)
     path = os.path.join(save_dir, "tuning_results.csv")
     results_df.to_csv(path, index=False, encoding="utf-8-sig")
-    print(f"\n[OK] 调参结果 → {path}")
+    print(f"\n[OK] Tuning results saved → {path}")

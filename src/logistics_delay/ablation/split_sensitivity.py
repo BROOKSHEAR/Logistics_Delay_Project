@@ -1,19 +1,20 @@
 """
-切割点敏感性分析：检验 CatBoost 在单次时序切分下的 test_auc 是否稳定。
+Split point sensitivity analysis: test whether CatBoost test_auc is stable under single temporal split.
 
-遍历多个训练集占比 (70%, 75%, 80%, 85%)，
-每个比例仅训练一次 CatBoost（用最佳超参数），
-观察 test_auc 对切割点的敏感程度。
+Iterate over multiple training set ratios (70%, 75%, 80%, 85%),
+train CatBoost once per ratio (using best hyperparams),
+observe test_auc sensitivity to split point.
 
-用法:
+Usage:
     python -m src.logistics_delay.ablation.split_sensitivity
 
-输出:
+Outputs:
     - outputs/tables/split_sensitivity.csv
-    - 控制台打印对比表格
+    - console comparison table
 """
 from __future__ import annotations
 
+import tempfile
 import warnings
 
 import pandas as pd
@@ -27,7 +28,7 @@ from logistics_delay.utils.paths import SEED, TABLES_DIR
 
 warnings.filterwarnings("ignore")
 
-# 最佳 CatBoost 超参数（来自 04_tuning.ipynb）
+# Best CatBoost params (from 04_tuning.ipynb)
 BEST_CB_PARAMS: dict = {
     "learning_rate": 0.05,
     "depth": 8,
@@ -43,20 +44,20 @@ def run_sensitivity(
     df_sorted: pd.DataFrame,
     split_ratios: list[float] | None = None,
 ) -> pd.DataFrame:
-    """对每个切割比例训练 CatBoost 并记录 test_auc。
+    """Train CatBoost for each split ratio and record test_auc.
 
     Args:
-        df_sorted: 按 trip_start_date 排序后的完整 DataFrame。
-        split_ratios: 训练集占比列表，默认 [0.70, 0.75, 0.80, 0.85]。
+        df_sorted: Full DataFrame sorted by trip_start_date.
+        split_ratios: Training ratios to test, default [0.70, 0.75, 0.80, 0.85].
 
     Returns:
-        DataFrame，每行一个切割比例，含:
-        - train_ratio: 训练集占比
-        - test_ratio: 测试集占比
-        - train_range: 训练集日期范围
-        - test_range: 测试集日期范围
+        DataFrame, one row per split ratio, with:
+        - train_ratio: Training ratio
+        - test_ratio: Test ratio
+        - train_range: Training date range
+        - test_range: Test date range
         - train_size / test_size
-        - pos_rate_train / pos_rate_test: 延误率
+        - pos_rate_train / pos_rate_test: Delay rates
         - spw: scale_pos_weight
         - test_auc / test_f1
     """
@@ -91,6 +92,7 @@ def run_sensitivity(
             class_weights={0: 1.0, 1: spw},
             random_seed=SEED,
             verbose=0,
+            train_dir=tempfile.gettempdir(),
             cat_features=cat_feats,
         )
         model.fit(X_train, y_train)
@@ -116,13 +118,13 @@ def run_sensitivity(
 
 
 def print_results(df: pd.DataFrame) -> None:
-    """格式化打印敏感性分析结果。"""
+    """Pretty-print sensitivity analysis results."""
     print("=" * 64)
-    print("  CatBoost 切割点敏感性分析")
+    print("  CatBoost split point sensitivity analysis")
     print("=" * 64)
     print(
-        f"  {'训练比':>6s}  {'测试比':>6s}  {'训练延误率':<10s}"
-        f"  {'测试延误率':<10s}  {'SPW':>6s}  {'AUC':>7s}  {'F1':>7s}"
+        f"  {'Train':>6s}  {'Test':>6s}  {'Train delay':<10s}"
+        f"  {'Test delay':<10s}  {'SPW':>6s}  {'AUC':>7s}  {'F1':>7s}"
     )
     print("  " + "-" * 58)
     for _, row in df.iterrows():
@@ -134,35 +136,35 @@ def print_results(df: pd.DataFrame) -> None:
     print("  " + "-" * 58)
 
     aucs = df["test_auc"].values
-    print(f"  AUC 均值: {aucs.mean():.4f}  "
-          f"标准差: {aucs.std():.4f}  "
-          f"极差: {aucs.max() - aucs.min():.4f}")
-    print(f"  解读: ", end="")
+    print(f"  AUC mean: {aucs.mean():.4f}  "
+          f"std: {aucs.std():.4f}  "
+          f"range: {aucs.max() - aucs.min():.4f}")
+    print(f"  Interpretation: ", end="")
     if aucs.max() - aucs.min() < 0.01:
-        print("[OK] AUC 波动 < 1pp，切割点影响不大，单次切分可用。")
+        print("[OK] AUC variation < 1pp, split point has little effect, single split OK.")
     elif aucs.max() - aucs.min() < 0.02:
-        print("[WARN] AUC 波动 1~2pp，存在一定敏感性，建议改用 TimeSeriesSplit。")
+        print("[WARN] AUC variation 1~2pp, moderate sensitivity, consider TimeSeriesSplit.")
     else:
-        print("[ALERT] AUC 波动 > 2pp，切割点高度敏感，必须改用 TimeSeriesSplit。")
+        print("[ALERT] AUC variation > 2pp, highly sensitive, must use TimeSeriesSplit.")
 
-    print("\n  各切割点日期范围:")
+    print("\n  Per-split date ranges:")
     for _, row in df.iterrows():
         print(f"    {row['train_ratio']:.0%}/{-row['test_ratio']:.0%}  "
-              f"训练: {row['train_range']}")
-        print(f"    {'':>6s}  测试: {row['test_range']}")
+              f"Train: {row['train_range']}")
+        print(f"    {'':>6s}  Test: {row['test_range']}")
 
 
 def save_results(df: pd.DataFrame) -> None:
-    """保存为 CSV。"""
+    """Save to CSV."""
     import os
     os.makedirs(TABLES_DIR, exist_ok=True)
     path = TABLES_DIR / "split_sensitivity.csv"
     df.to_csv(path, index=False, encoding="utf-8-sig")
-    print(f"\n[OK] 敏感性分析结果 → {path}")
+    print(f"\n[OK] Sensitivity analysis results → {path}")
 
 
 if __name__ == "__main__":
-    print("加载数据...")
+    print("Loading data...")
     df_sorted = load_and_prepare_data()
 
     result_df = run_sensitivity(df_sorted)

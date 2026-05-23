@@ -1,10 +1,12 @@
 """
-模型评估模块。
+Model evaluation module.
 
-提供统一的 ``evaluate`` 和 ``get_model`` 函数，
-供训练 notebook 和消融实验重复使用。
+Provides unified ``evaluate`` and ``get_model`` functions,
+reused by training notebooks and ablation experiments.
 """
 from __future__ import annotations
+
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -17,13 +19,13 @@ from catboost import CatBoostClassifier
 
 from logistics_delay.utils.paths import RANDOM_STATE
 
-# ── 支持的模型列表（用于循环） ──
+# ── Supported model list (for iteration) ──
 ALL_MODELS = [
     "LogisticRegression", "DecisionTree", "RandomForest",
     "XGBoost", "CatBoost", "LightGBM",
 ]
 
-# ── CatBoost / LightGBM 使用的原生类别特征名 ──
+# ── Raw categorical feature names for CatBoost / LightGBM ──
 XGB_CAT_COLS = [
     "vehicleType", "OriginLocation_Code", "DestinationLocation_Code",
     "GpsProvider", "booking_prefix", "origin_city", "dest_city", "customerID",
@@ -31,10 +33,10 @@ XGB_CAT_COLS = [
 
 
 def evaluate(model, X_test, y_test, model_name: str = "") -> dict:
-    """统一评估函数。
+    """Unified evaluation function。
 
     Returns:
-        dict 包含 ``auc``, ``f1``, ``accuracy``, ``model``。
+        dict containing ``auc``, ``f1``, ``accuracy``, ``model``.
     """
     y_pred = model.predict(X_test)
     y_prob = model.predict_proba(X_test)[:, 1]
@@ -49,15 +51,15 @@ def evaluate(model, X_test, y_test, model_name: str = "") -> dict:
 def get_model(model_name: str,
               spw: float | None = None,
               cat_features: list | None = None):
-    """按名称返回与主实验参数一致的模型实例。
+    """Return a model instance consistent with the main experiment by name.
 
     Args:
-        model_name: 模型名称 (``ALL_MODELS`` 之一)。
-        spw: ``scale_pos_weight`` 或 ``class_weights`` 的参考值。
-        cat_features: CatBoost 的 ``cat_features`` 参数。
+        model_name: Model name (one of ``ALL_MODELS``).
+        spw: Reference value for ``scale_pos_weight`` or ``class_weights``.
+        cat_features: CatBoost ``cat_features`` parameter.
 
     Returns:
-        未拟合的模型实例。
+        Unfitted model instance.
     """
     models = {
         "LogisticRegression": LogisticRegression(
@@ -77,9 +79,10 @@ def get_model(model_name: str,
             iterations=200,
             class_weights={0: 1.0, 1: spw} if spw is not None else None,
             random_seed=RANDOM_STATE, verbose=0,
+            train_dir=tempfile.gettempdir(),
             cat_features=cat_features,
         ),
-        "LightGBM": None,  # LightGBM 参数因版本差异较大，单独处理
+        "LightGBM": None,  # LightGBM params vary significantly by version; handled separately
     }
     if model_name == "LightGBM":
         from lightgbm import LGBMClassifier
@@ -93,11 +96,11 @@ def get_model(model_name: str,
 def _prepare_xgb_input(model_name: str,
                        X_enc: pd.DataFrame,
                        X_xgb: pd.DataFrame) -> pd.DataFrame:
-    """根据不同模型类型返回对应的特征矩阵。
+    """Return the appropriate feature matrix based on model type.
 
-    三个树模型（CatBoost / XGBoost / LightGBM）都原生支持
-    pandas ``category`` dtype，直接返回 ``X_xgb``。
-    其余 sklearn 模型返回 ``X_enc``。
+    The three tree models (CatBoost / XGBoost / LightGBM) natively support
+    pandas ``category`` dtype, so ``X_xgb`` is returned directly.
+    Other sklearn models return ``X_enc``.
     """
     if model_name in ("CatBoost", "XGBoost", "LightGBM"):
         return X_xgb

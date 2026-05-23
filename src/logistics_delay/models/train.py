@@ -1,7 +1,7 @@
 """
-模型训练模块。
+Model training module.
 
-提供数据划分函数和单模型/多模型训练封装。
+Provides data splitting functions and single/multi-model training wrappers.
 """
 from __future__ import annotations
 
@@ -15,24 +15,24 @@ from logistics_delay.features.engineering import (
 )
 
 
-# ──────────────── 数据划分函数 ────────────────
+# ──────────────── Data splitting functions ────────────────
 
 def random_split(df: pd.DataFrame,
                  feature_set: str = "enc",
                  test_size: float = 0.2,
                  stratify: bool = True):
-    """随机划分（80/20 分层抽样）。
+    """Random split (80/20 stratified).
 
     Args:
-        df: 含 ``Answer`` 列和特征列的完整 DataFrame。
-        feature_set: ``"enc"`` 或 ``"xgb"``。
-        test_size: 测试集比例。
-        stratify: 是否按目标变量分层抽样。
+        df: Full DataFrame with ``Answer`` column and feature columns.
+        feature_set: ``"enc"`` or ``"xgb"``.
+        test_size: Test set ratio.
+        stratify: Whether to stratify by target variable.
 
     Returns:
-        (X_train, X_test, y_train, y_test, scale_pos_weight) 或
+        (X_train, X_test, y_train, y_test, scale_pos_weight) or
         (X_train, X_test, y_train, y_test, scale_pos_weight, X_train_xgb, X_test_xgb)
-        若 feature_set="both"。
+        if feature_set="both".
     """
     if feature_set == "xgb":
         features = FEATURES_XGB
@@ -48,7 +48,7 @@ def random_split(df: pd.DataFrame,
     )
     spw = len(y_train[y_train == 0]) / len(y_train[y_train == 1])
 
-    print(f"[train] 随机划分: 训练 {len(y_train)} / 测试 {len(y_test)}")
+    print(f"[train] Random split: train {len(y_train)} / test {len(y_test)}")
     print(f"[train] scale_pos_weight = {spw:.4f}")
 
     return X_train, X_test, y_train, y_test, spw
@@ -57,13 +57,13 @@ def random_split(df: pd.DataFrame,
 def temporal_split(df: pd.DataFrame,
                    feature_set: str = "enc",
                    test_size: float = 0.2):
-    """时序划分：按 ``trip_start_date`` 排序，前 ``(1-test_size)`` 训练，后 ``test_size`` 测试。
+    """Temporal split: sort by ``trip_start_date``, first ``(1-test_size)`` train, last ``test_size`` test.
 
-    确保训练集全部早于测试集，避免数据泄露。
+    Ensures all training data precedes test data to avoid leakage.
 
     Args:
-        df: 含 ``Answer``、``trip_start_date`` 和特征列的 DataFrame。
-        feature_set: ``"enc"`` 或 ``"xgb"``。
+        df: DataFrame with ``Answer``, ``trip_start_date`` and features.
+        feature_set: ``"enc"`` or ``"xgb"``.
 
     Returns:
         (X_train, X_test, y_train, y_test, scale_pos_weight, split_date)
@@ -83,11 +83,11 @@ def temporal_split(df: pd.DataFrame,
     y_test = df_sorted.loc[split_idx:, "Answer"].reset_index(drop=True)
     spw = len(y_train[y_train == 0]) / len(y_train[y_train == 1])
 
-    print(f"[train] 时序划分: 分割点 {cutoff_date.date()}")
-    print(f"[train] 训练: {len(y_train)} 条, "
+    print(f"[train] Temporal split: cutoff {cutoff_date.date()}")
+    print(f"[train] Train: {len(y_train)} records, "
           f"{df_sorted.loc[:split_idx - 1, 'trip_start_date'].min().date()} ~ "
           f"{df_sorted.loc[:split_idx - 1, 'trip_start_date'].max().date()}")
-    print(f"[train] 测试: {len(y_test)} 条, "
+    print(f"[train] Test: {len(y_test)} records, "
           f"{df_sorted.loc[split_idx, 'trip_start_date'].date()} ~ "
           f"{df_sorted['trip_start_date'].max().date()}")
     print(f"[train] scale_pos_weight = {spw:.4f}")
@@ -95,18 +95,18 @@ def temporal_split(df: pd.DataFrame,
     return X_train, X_test, y_train, y_test, spw, cutoff_date
 
 
-# ──────────────── 训练封装 ────────────────
+# ──────────────── Training wrapper ────────────────
 
 def train_model(model, X_train, y_train, **fit_kwargs):
-    """训练单个模型。
+    """Train a single model.
 
     Args:
-        model: sklearn-compatible 模型实例。
-        X_train: 训练特征。
-        y_train: 训练标签。
+        model: sklearn-compatible model instance.
+        X_train: Training features.
+        y_train: Training labels.
 
     Returns:
-        已拟合的模型。
+        Fitted model.
     """
     model.fit(X_train, y_train, **fit_kwargs)
     return model

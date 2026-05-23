@@ -1,7 +1,7 @@
 """
-数据清洗模块。
+Data cleaning module.
 
-提供独立的清洗函数（可单独使用），以及一键式 ``clean_data`` 完整管道。
+Provides independent cleaning functions (usable standalone) and ``clean_data`` pipeline.
 """
 from __future__ import annotations
 
@@ -11,33 +11,33 @@ import numpy as np
 from logistics_delay.features.distance_fill_geo import DistanceFiller
 
 
-# ──────────────── 底层独立函数（可单独调用） ────────────────
+# ──────────────── Low-level independent functions (callable standalone) ────────────────
 
 def remove_conflict_rows(df: pd.DataFrame) -> pd.DataFrame:
-    """删除 ``ontime`` 与 ``delay`` 矛盾的行（ontime=G 但 delay=R）。
+    """Remove rows where ``ontime`` and ``delay`` contradict (ontime=G but delay=R).
 
-    这类数据占比约 0.35%，属于逻辑错误。
+    These account for ~0.35% of data and are logical errors.
     """
     n_before = len(df)
     has_delay = df["delay"] == "R"
     conflict = has_delay & (df["ontime"] == "G")
     df_clean = df[~conflict].reset_index(drop=True)
     n_removed = n_before - len(df_clean)
-    print(f"[cleaner] 删除 {n_removed} 行冲突数据 ({n_removed / n_before * 100:.2f}%)")
-    print(f"[cleaner] 清洗冲突后: {len(df_clean)} 行")
+    print(f"[cleaner] Removed {n_removed} conflicting rows ({n_removed / n_before * 100:.2f}%)")
+    print(f"[cleaner] After conflict cleaning: {len(df_clean)} rows")
     return df_clean
 
 
 def parse_and_filter_dates(df: pd.DataFrame,
                            years: list[int] | None = None) -> pd.DataFrame:
-    """解析 ``trip_start_date`` 并过滤指定年份。
+    """Parse ``trip_start_date`` and filter to specified years.
 
     Args:
-        df: 输入 DataFrame（需含 ``trip_start_date`` 列）。
-        years: 保留的年份列表，默认 ``[2019, 2020]``。
+        df: Input DataFrame (must have ``trip_start_date`` column).
+        years: Years to keep, default ``[2019, 2020]``.
 
     Returns:
-        过滤后的 DataFrame。
+        Filtered DataFrame.
     """
     if years is None:
         years = [2019, 2020]
@@ -46,14 +46,14 @@ def parse_and_filter_dates(df: pd.DataFrame,
     df["trip_start_date"] = pd.to_datetime(df["trip_start_date"], errors="coerce")
     df["year"] = df["trip_start_date"].dt.year
 
-    print(f"[cleaner] 原始日期范围: {df['trip_start_date'].min().date()} ~ "
+    print(f"[cleaner] Original date range: {df['trip_start_date'].min().date()} ~ "
           f"{df['trip_start_date'].max().date()}")
 
     n_before = len(df)
     df = df[df["year"].isin(years)].reset_index(drop=True)
     n_removed = n_before - len(df)
-    print(f"[cleaner] 过滤掉 {n_removed} 行非 {years} 数据")
-    print(f"[cleaner] 保留 {len(df)} 行")
+    print(f"[cleaner] Filtered out {n_removed} rows not in {years}")
+    print(f"[cleaner] Retained {len(df)} rows")
 
     return df
 
@@ -61,22 +61,22 @@ def parse_and_filter_dates(df: pd.DataFrame,
 def fill_distance_geo(df: pd.DataFrame,
                       max_search_radius: float = 3.0,
                       verbose: bool = False) -> pd.DataFrame:
-    """使用地理邻近性填补运输距离缺失值。
+    """Fill missing transportation distance using geographic proximity.
 
     Args:
-        df: 输入 DataFrame。
-        max_search_radius: 最大搜索半径（经纬度）。
-        verbose: 是否打印每条填补记录。
+        df: Input DataFrame.
+        max_search_radius: Maximum search radius (lat/lon degrees).
+        verbose: Whether to print each fill record.
 
     Returns:
-        距离已填补的 DataFrame。
+        DataFrame with filled distances.
     """
     df = df.copy()
-    # 保存原始距离值（含 NaN），供地理消融实验 (run_geo_ablation) 比较不同填充策略
+    # Save original distance (with NaN) for geo ablation to compare strategies
     df["_dist_original"] = df["TRANSPORTATION_DISTANCE_IN_KM"].copy()
     missing_mask = df["TRANSPORTATION_DISTANCE_IN_KM"].isna()
     n_missing = int(missing_mask.sum())
-    print(f"[cleaner] 运输距离缺失: {n_missing} 条")
+    print(f"[cleaner] Distance missing: {n_missing} records")
 
     if n_missing == 0:
         return df
@@ -90,38 +90,38 @@ def fill_distance_geo(df: pd.DataFrame,
     ]
 
     n_still = df["TRANSPORTATION_DISTANCE_IN_KM"].isna().sum()
-    print(f"[cleaner] 地理填补完成，共填补 {n_missing - n_still} 条")
+    print(f"[cleaner] Geo imputation done, filled {n_missing - n_still} records")
 
     if n_still > 0:
         median_val = df["TRANSPORTATION_DISTANCE_IN_KM"].median()
         df["TRANSPORTATION_DISTANCE_IN_KM"] = (
             df["TRANSPORTATION_DISTANCE_IN_KM"].fillna(median_val)
         )
-        print(f"[cleaner] 使用中位数 {median_val:.1f} km 填补剩余 {n_still} 条")
+        print(f"[cleaner] Median {median_val:.1f} km used for remaining {n_still} records")
 
     return df
 
 
 def fill_basic_fields(df: pd.DataFrame) -> pd.DataFrame:
-    """填充其他基本字段的缺失值并提取派生字段。
+    """Fill missing values in basic fields and extract derived fields.
 
-    包括: Minimum_kms, vehicleType, GpsProvider, booking_prefix,
-    origin_city, dest_city, Code/Customer/Supplier 字段。
+    Includes: Minimum_kms, vehicleType, GpsProvider, booking_prefix,
+    origin_city, dest_city, Code/Customer/Supplier fields.
     """
     df = df.copy()
 
-    # Minimum_kms (类别变量)
+    # Minimum_kms (categorical)
     df["Minimum_kms_to_be_covered_in_a_day"] = (
         df["Minimum_kms_to_be_covered_in_a_day"]
         .fillna("UNKNOWN")
         .astype(str)
     )
-    print("[cleaner] Minimum_kms_to_be_covered_in_a_day: 类别变量，缺失值填充为 UNKNOWN")
+    print("[cleaner] Minimum_kms_to_be_covered_in_a_day: categorical, missing filled as UNKNOWN")
 
     # vehicleType
     df["vehicleType"] = df["vehicleType"].fillna("Unknown")
 
-    # BookingID_Date 解析
+    # Parse BookingID_Date
     df["BookingID_Date"] = pd.to_datetime(
         df["BookingID_Date"], unit="D", origin="1899-12-30"
     )
@@ -136,7 +136,7 @@ def fill_basic_fields(df: pd.DataFrame) -> pd.DataFrame:
         df["BookingID"].astype(str).str.extract(r"^([A-Za-z]+)")[0].fillna("UNKNOWN")
     )
 
-    # 城市字段
+    # City fields
     df["origin_city"] = (
         df["Origin_Location"]
         .astype(str)
@@ -156,33 +156,33 @@ def fill_basic_fields(df: pd.DataFrame) -> pd.DataFrame:
         .fillna("UNKNOWN")
     )
 
-    # 其他 Code 字段
+    # Other Code fields
     df["OriginLocation_Code"] = df["OriginLocation_Code"].fillna("UNKNOWN")
     df["DestinationLocation_Code"] = df["DestinationLocation_Code"].fillna("UNKNOWN")
     df["customerID"] = df["customerID"].fillna("UNKNOWN").astype(str)
     df["supplierID"] = df["supplierID"].fillna("UNKNOWN").astype(str)
 
-    print(f"[cleaner] 基本字段填充完成")
+    print(f"[cleaner] Basic field filling complete")
     return df
 
 
-# ──────────────── 一键管道 ────────────────
+# ──────────────── Pipeline ────────────────
 
 def clean_data(df: pd.DataFrame,
                years: list[int] | None = None,
                geo_radius: float = 3.0) -> pd.DataFrame:
-    """完整数据清洗管道：冲突删除 → 日期过滤 → 距离填补 → 字段填充。
+    """Full data cleaning pipeline: conflict removal → date filtering → distance imputation → field filling.
 
     Args:
-        df: 原始 DataFrame（含 ``Answer`` 列）。
-        years: 保留的年份。
-        geo_radius: 地理填补搜索半径。
+        df: Raw DataFrame (must have ``Answer`` column).
+        years: Years to retain.
+        geo_radius: Geo imputation search radius.
 
     Returns:
-        清洗完成的 DataFrame。
+        Cleaned DataFrame.
     """
     print("=" * 50)
-    print("  数据清洗管道")
+    print("  Data cleaning pipeline")
     print("=" * 50)
 
     df = remove_conflict_rows(df)
@@ -190,14 +190,14 @@ def clean_data(df: pd.DataFrame,
     df = fill_distance_geo(df, max_search_radius=geo_radius)
     df = fill_basic_fields(df)
 
-    # 最终检查
+    # Final check
     remaining = df.isnull().sum()
     remaining = remaining[remaining > 0]
     if len(remaining) > 0:
-        print(f"[cleaner] ⚠ 仍有缺失值的字段: {remaining.to_dict()}")
+        print(f"[cleaner] Fields still containing NaNs: {remaining.to_dict()}")
     else:
-        print("[cleaner] ✅ 所有缺失值已处理")
+        print("[cleaner] All missing values handled")
 
-    print(f"[cleaner] 清洗完成, 形状: {df.shape}, "
-          f"延误率: {df['Answer'].mean() * 100:.2f}%")
+    print(f"[cleaner] Cleaning complete, shape: {df.shape}, "
+          f"delay rate: {df['Answer'].mean() * 100:.2f}%")
     return df

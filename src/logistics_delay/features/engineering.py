@@ -1,9 +1,9 @@
 """
-特征工程模块。
+Feature engineering module.
 
-提供独立的时间特征、分箱、编码函数，以及 ``engineer_features`` 一键管道。
+Provides independent temporal feature, binning, encoding functions, and ``engineer_features`` pipeline.
 
-用法:
+Usage:
     from logistics_delay.features.engineering import engineer_features, get_feature_lists
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from sklearn.preprocessing import LabelEncoder
 from logistics_delay.data.cleaner import clean_data, fill_distance_geo
 from logistics_delay.utils.paths import DATA_PROCESSED
 
-# ──────────────── 特征列表常量（全局统一） ────────────────
+# ──────────────── Feature list constants (global) ────────────────
 
 XGB_CAT_COLS = [
     "vehicleType", "OriginLocation_Code", "DestinationLocation_Code",
@@ -41,18 +41,18 @@ FEATURES_XGB = [
 
 
 def get_feature_lists():
-    """返回三个特征列表常量。
+    """Return the three feature list constants.
 
     Returns:
-        (features_enc, features_xgb, xgb_cat_cols) 元组。
+        (features_enc, features_xgb, xgb_cat_cols) tuple.
     """
     return FEATURES_ENC, FEATURES_XGB, XGB_CAT_COLS
 
 
-# ──────────────── 底层独立函数 ────────────────
+# ──────────────── Low-level independent functions ────────────────
 
 def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
-    """添加 ``start_weekday``（0=周一）和 ``start_month``（1=1月）。"""
+    """Add ``start_weekday`` (0=Mon) and ``start_month`` (1=Jan)."""
     df = df.copy()
     df["start_weekday"] = df["trip_start_date"].dt.dayofweek
     df["start_month"] = df["trip_start_date"].dt.month
@@ -60,11 +60,11 @@ def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_planned_days_features(df: pd.DataFrame) -> pd.DataFrame:
-    """计算 ``planned_days`` 及其分箱编码 ``planned_days_enc``。
+    """Compute ``planned_days`` and its binned encoding ``planned_days_enc``.
 
-    从 ``Planned_ETA`` 和 ``BookingID_Date`` 计算计划天数，
-    去除负值和 >180 天的异常值后用中位数填充。
-    分箱方案: [-1, 1] → 0, (1, 3] → 1, (3, 7] → 2, (7, 999] → 3。
+    Compute planned days from ``Planned_ETA`` and ``BookingID_Date``,
+    remove negatives and >180 day outliers, fill with median.
+    Binning: [-1, 1] → 0, (1, 3] → 1, (3, 7] → 2, (7, 999] → 3.
     """
     df = df.copy()
     df["planned_eta_time"] = pd.to_datetime(df["Planned_ETA"], errors="coerce")
@@ -87,7 +87,7 @@ def add_planned_days_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_business_flags(df: pd.DataFrame) -> pd.DataFrame:
-    """添加业务标记特征 ``is_market`` 和 ``supplier_is_large``。"""
+    """Add business indicator features ``is_market`` and ``supplier_is_large``."""
     df = df.copy()
     df["is_market"] = (df["Market/Regular"] == "Market").astype(int)
     has_alpha = df["supplierID"].str.contains("[A-Za-z]", regex=True, na=False)
@@ -96,7 +96,7 @@ def add_business_flags(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def encode_label_features(df: pd.DataFrame) -> pd.DataFrame:
-    """对所有类别特征执行 LabelEncoder 编码，生成 ``*_enc`` 列。"""
+    """Apply LabelEncoder to all categorical features, generating ``*_enc`` columns."""
     df = df.copy()
     le = LabelEncoder()
 
@@ -116,7 +116,7 @@ def encode_label_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def prepare_catboost_categoricals(df: pd.DataFrame) -> pd.DataFrame:
-    """将 CatBoost / XGBoost 使用的类别特征转为 ``category`` 类型。"""
+    """Convert categorical features used by CatBoost / XGBoost to ``category`` dtype."""
     df = df.copy()
     for col in XGB_CAT_COLS:
         if col in df.columns:
@@ -124,7 +124,7 @@ def prepare_catboost_categoricals(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# ──────────────── 一键管道 ────────────────
+# ──────────────── Pipeline ────────────────
 
 def engineer_features(
     df: pd.DataFrame,
@@ -133,33 +133,33 @@ def engineer_features(
     years: list[int] | None = None,
     geo_radius: float = 3.0,
 ) -> pd.DataFrame:
-    """完整特征工程管道。
+    """Full feature engineering pipeline.
 
-    如果 ``run_clean=True``，先执行数据清洗再执行特征工程；
-    否则假设 ``df`` 已经过清洗（含 ``Answer``、日期已解析、字段已填充）。
+    If ``run_clean=True``, run cleaning first, then feature engineering;
+    otherwise assume ``df`` is already cleaned (has ``Answer``, parsed dates, filled fields).
 
     Args:
-        df: 原始或已清洗的 DataFrame。
-        run_clean: 是否先运行清洗管道。
-        years: 保留的年份。
-        geo_radius: 地理填补搜索半径。
+        df: Raw or cleaned DataFrame.
+        run_clean: Whether to run cleaning first.
+        years: Years to retain.
+        geo_radius: Geo-fill search radius.
 
     Returns:
-        含所有特征的 DataFrame（约 53 列）。
+        DataFrame with all features (~53 columns).
     """
     print("=" * 50)
-    print("  特征工程管道")
+    print("  Feature engineering pipeline")
     print("=" * 50)
 
-    # 确保 Answer 列存在（原始数据用 ontime 创建，已清洗数据跳过）
+    # Ensure Answer column exists (create from ontime for raw data, skip if already cleaned)
     if "Answer" not in df.columns:
         df["Answer"] = df["ontime"].apply(lambda x: 0 if x == "G" else 1)
-        print("[engineering] 从 ontime 创建 Answer 列")
+        print("[engineering] Creating Answer column from ontime")
 
     if run_clean:
         df = clean_data(df, years=years, geo_radius=geo_radius)
     else:
-        print("[engineering] 跳过清洗，使用已清洗数据")
+        print("[engineering] Skipping cleaning, using pre-cleaned data")
 
     df = add_time_features(df)
     df = add_planned_days_features(df)
@@ -167,15 +167,15 @@ def engineer_features(
     df = encode_label_features(df)
     df = prepare_catboost_categoricals(df)
 
-    print(f"[engineering] 特征工程完成, 形状: {df.shape}, "
-          f"总列数: {len(df.columns)}")
-    print(f"[engineering] 特征数量: {len(FEATURES_ENC)} (sklearn) / "
+    print(f"[engineering] Feature engineering done, shape: {df.shape}, "
+          f"total columns: {len(df.columns)}")
+    print(f"[engineering] Features: {len(FEATURES_ENC)} (sklearn) / "
           f"{len(FEATURES_XGB)} (XGBoost/CatBoost)")
 
     if save_processed:
         DATA_PROCESSED.mkdir(parents=True, exist_ok=True)
         path = DATA_PROCESSED / "truck_delay_handled_file.xlsx"
         df.to_excel(path, index=False)
-        print(f"[engineering] 已保存 → {path} ({df.shape[0]} 行 × {len(df.columns)} 列)")
+        print(f"[engineering] Saved → {path} ({df.shape[0]} rows × {len(df.columns)} cols)")
 
     return df

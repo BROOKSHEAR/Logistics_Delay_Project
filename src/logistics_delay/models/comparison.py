@@ -1,17 +1,19 @@
 """
-模型比较与假设检验模块。
+Model comparison and hypothesis testing module.
 
-提供 TimeSeriesSplit 时序交叉验证、Bootstrap AUC 置信区间、
-及模型排名分析，用于科学比较多个模型在时序数据上的表现。
+Provides TimeSeriesSplit temporal CV, Bootstrap AUC confidence intervals,
+and model ranking analysis for scientific comparison of multiple models on temporal data.
 
-用法:
+Usage:
     from logistics_delay.models.comparison import run_comparison
     results = run_comparison(df)
-    # results.auc_ci        → DataFrame: 各模型的 AUC 置信区间
-    # results.rankings_df   → DataFrame: 各模型的排名分布
-    # results.win_matrix    → DataFrame: 配对胜率矩阵
+    # results.auc_ci        → DataFrame: AUC confidence intervals per model
+    # results.rankings_df   → DataFrame: ranking distribution per model
+    # results.win_matrix    → DataFrame: pairwise win matrix
 """
 from __future__ import annotations
+
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -31,7 +33,7 @@ __all__ = ["run_comparison"]
 RANDOM_STATE = 42
 
 # ════════════════════════════════════════════════════════════════
-#  最佳超参数（来自 04_tuning.ipynb 调优结果）
+#  Best hyperparameters (from 04_tuning.ipynb tuning results)
 # ════════════════════════════════════════════════════════════════
 
 _BEST_PARAMS = {
@@ -67,19 +69,20 @@ _BEST_PARAMS = {
         "l2_leaf_reg": 5, "border_count": 64,
         "bagging_temperature": 1, "random_strength": 0,
         "random_seed": RANDOM_STATE, "verbose": 0,
+        "train_dir": tempfile.gettempdir(),
     },
 }
 
-# 使用 XGB 风格特征（含 category dtype）的模型
+# Models using XGB-style features (with category dtype)
 _N_TREE_MODELS = {"CatBoost", "XGBoost", "LightGBM"}
 
 
 # ════════════════════════════════════════════════════════════════
-#  私有辅助函数
+#  Private helper functions
 # ════════════════════════════════════════════════════════════════
 
 def _create_model(model_name: str, spw: float):
-    """使用最佳参数创建模型实例，并动态注入 scale_pos_weight / class_weights。"""
+    """Create model instance with best params, dynamically inject scale_pos_weight / class_weights."""
     params = _BEST_PARAMS[model_name].copy()
     if model_name in ("XGBoost", "LightGBM"):
         params["scale_pos_weight"] = spw
@@ -98,7 +101,7 @@ def _create_model(model_name: str, spw: float):
 
 
 def _select_features(model_name: str, df: pd.DataFrame) -> pd.DataFrame:
-    """根据模型类型选择对应的特征子集并处理 dtype。"""
+    """Select appropriate feature subset and handle dtype based on model type."""
     if model_name in _N_TREE_MODELS:
         X = df[FEATURES_XGB].copy()
         for c in XGB_CAT_COLS:
@@ -113,13 +116,13 @@ def _create_tscv_folds(
     df: pd.DataFrame,
     n_splits: int = 5,
 ) -> list[tuple[pd.Index, pd.Index, str]]:
-    """使用 sklearn ``TimeSeriesSplit`` 创建时序交叉验证折。
+    """Create temporal CV folds using sklearn ``TimeSeriesSplit``.
 
-    数据须已按时间排序。保持时间顺序，前 80% → 后 20% 逐折推进。
+    Data must be sorted by time. Maintains temporal order, 80% → 20% per fold.
 
     Args:
-        df: 已排序 DataFrame。
-        n_splits: 折数（默认 5）。
+        df: Sorted DataFrame.
+        n_splits: Number of folds (default 5).
 
     Returns:
         [(train_idx, test_idx, label), ...]。
@@ -141,10 +144,10 @@ def _bootstrap_auc(
     n_resamples: int = 2000,
     seed: int = 42,
 ) -> tuple[float, float, float, np.ndarray]:
-    """Bootstrap 方法计算 AUC 置信区间。
+    """Bootstrap AUC confidence interval computation.
 
-    对测试集样本有放回重采样 n_resamples 次，
-    每次计算 AUC，得到 AUC 的经验分布，取百分位数。
+    Resample test set with replacement n_resamples times,
+    compute AUC each time, get empirical distribution, take percentiles.
 
     Returns:
         (mean_auc, ci_lower, ci_upper, bootstrap_samples)
@@ -171,7 +174,7 @@ def _bootstrap_auc(
 
 
 # ════════════════════════════════════════════════════════════════
-#  公开 API
+#  Public API
 # ════════════════════════════════════════════════════════════════
 
 def run_comparison(
@@ -181,25 +184,25 @@ def run_comparison(
     n_bootstrap: int = 2000,
     seed: int = 42,
 ) -> dict:
-    """运行完整的时间序列 CV 模型比较。
+    """Run full temporal CV model comparison.
 
-    1. ``TimeSeriesSplit(n_splits=5)`` 创建 5 个时序 fold
-    2. 每个 fold 训练全部 6 个模型（使用调优最佳参数）
-    3. 用 Bootstrap 计算每个模型的 AUC 置信区间（样本级重采样 2000 次）
-    4. 计算跨 fold 的排名分布和配对胜率矩阵
+    1. ``TimeSeriesSplit(n_splits=5)`` creates 5 temporal folds
+    2. Each fold trains all 6 models (using tuned best params)
+    3. Bootstrap computes AUC confidence intervals per model (2000 resamples)
+    4. Compute cross-fold ranking distribution and pairwise win matrix
 
     Args:
-        df: 完整 DataFrame（须含 Answer 和 trip_start_date）。
-        models: 模型名称列表，默认用 _BEST_PARAMS 中的全部 6 个。
-        n_splits: TimeSeriesSplit 折数（默认 5）。
-        n_bootstrap: Bootstrap 重采样次数。
-        seed: 随机种子。
+        df: Full DataFrame (must contain Answer and trip_start_date).
+        models: List of model names, defaults to all 6 from _BEST_PARAMS.
+        n_splits: Number of TimeSeriesSplit folds (default 5).
+        n_bootstrap: Number of bootstrap resamples.
+        seed: Random seed.
 
     Returns:
-        dict，包含以下键:
+        dict with keys:
         - ``auc_ci``: DataFrame [model, mean_auc, ci_lower, ci_upper, std_auc]
         - ``rankings_df``: DataFrame [model, rank_1..rank_N, avg_rank]
-        - ``win_matrix``: DataFrame (N×N, 行=模型, 值=行模型胜列模型的 fold 比例)
+        - ``win_matrix``: DataFrame (N×N, row=model, val=fraction where row beats col)
         - ``fold_aucs``: DataFrame [fold, model_1, ..., model_N]
     """
     if models is None:
@@ -208,14 +211,14 @@ def run_comparison(
     df_sorted = df.sort_values("trip_start_date").reset_index(drop=True)
     folds = _create_tscv_folds(df_sorted, n_splits=n_splits)
     n_folds = len(folds)
-    print(f"[comparison] TimeSeriesSplit({n_splits}) → {n_folds} 个时序 fold")
-    print(f"[comparison] 模型: {models}")
+    print(f"[comparison] TimeSeriesSplit({n_splits}) → {n_folds} temporal folds")
+    print(f"[comparison] Models: {models}")
     print(f"[comparison] Bootstrap: {n_bootstrap}")
 
-    # ── 存储折中的结果 ──
+    # ── Store per-fold results ──
     fold_auc_point: dict[str, list[float]] = {m: [] for m in models}
     fold_bs_pool: dict[str, list[np.ndarray]] = {m: [] for m in models}
-    fold_details: list[dict] = []  # 每折每模型 AUC + CI
+    fold_details: list[dict] = []  # per-fold per-model AUC + CI
 
     for fold_idx, (train_idx, test_idx, label) in enumerate(folds):
         df_tr = df_sorted.loc[train_idx]
@@ -229,7 +232,7 @@ def run_comparison(
         print(f"\n  [{label}]  train={len(df_tr)}  test={len(df_te)}  "
               f"spw={spw:.4f}")
 
-        # 同折内所有模型共用同一个 bootstrap 种子，确保公平对比
+        # All models in the same fold share the same bootstrap seed for fair comparison
         bootstrap_seed = seed + fold_idx
 
         for mname in models:
@@ -268,10 +271,10 @@ def run_comparison(
                 print(f"    {mname:<20s}  ERROR: {exc}")
 
     # ════════════════════════════════════════════════════════════
-    #  汇总
+    #  Aggregation
     # ════════════════════════════════════════════════════════════
 
-    # 1. AUC 置信区间
+    # 1. AUC confidence intervals
     ci_rows = []
     for mname in models:
         bs = np.concatenate(fold_bs_pool[mname])
@@ -291,7 +294,7 @@ def run_comparison(
         .reset_index(drop=True)
     )
 
-    # 2. 排名分布
+    # 2. Ranking distribution
     auc_mat = pd.DataFrame({m: fold_auc_point[m] for m in models})
     rank_mat = auc_mat.rank(axis=1, ascending=False, method="min").astype(int)
     n_m = len(models)
@@ -303,7 +306,7 @@ def run_comparison(
     rank_dist["avg_rank"] = rank_mat.mean().round(2)
     rank_dist = rank_dist.sort_values("avg_rank")
 
-    # 3. 配对胜率矩阵
+    # 3. Pairwise win matrix
     win_arr = np.full((n_m, n_m), 0.5)
     for i, ma in enumerate(models):
         for j, mb in enumerate(models):
@@ -316,23 +319,23 @@ def run_comparison(
                 win_arr[i, j] = (va[valid] > vb[valid]).mean()
     win_mat = pd.DataFrame(win_arr, index=models, columns=models)
 
-    # ── 打印汇总 ──
+    # ── Print summary ──
     print("\n\n" + "=" * 62)
-    print("    模型 AUC 置信区间（Bootstrap 95% CI）")
+    print("    Model AUC confidence intervals (Bootstrap 95% CI)")
     print("=" * 62)
-    print(f"  {'模型':<22s} {'均值AUC':>8s} {'下限':>8s} {'上限':>8s} {'标准差':>8s}")
+    print(f"  {'Model':<22s} {'Mean AUC':>8s} {'Lower':>8s} {'Upper':>8s} {'Std':>8s}")
     print("  " + "-" * 58)
     for _, r in auc_ci.iterrows():
         print(f"  {r['model']:<22s} {r['mean_auc']:>8.4f} {r['ci_lower']:>8.4f} "
               f"{r['ci_upper']:>8.4f} {r['std_auc']:>8.4f}")
 
     print("\n\n" + "=" * 62)
-    print("    模型排名分布（值 = 夺得该名次的 fold 数）")
+    print("    Model ranking distribution (value = folds where model achieved rank)")
     print("=" * 62)
     print(rank_dist.to_string())
 
     print("\n\n" + "=" * 62)
-    print("    配对胜率矩阵（行模型 胜 列模型的 fold 比例）")
+    print("    Pairwise win matrix (row model beats column model, fraction of folds)")
     print("=" * 62)
     print(win_mat.to_string(float_format=lambda x: f"{x:.1%}"))
 

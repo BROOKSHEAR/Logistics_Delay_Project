@@ -1,15 +1,16 @@
 """
-特征消融实验脚本 (Feature Ablation)。
+Feature ablation experiment script.
 
-提供数据加载、留一法特征消融、学习曲线分析、结果保存功能。
-只使用时序划分 (temporal split)，按 ``trip_start_date`` 排序后 80/20 切分。
+Provides data loading, leave-one-out feature ablation, learning curve analysis, and result saving.
+Uses temporal split only: sort by ``trip_start_date`` then 80/20 split.
 
-用法:
+Usage:
     python -m src.logistics_delay.ablation.feature_ablation
 """
 from __future__ import annotations
 
 import os
+import tempfile
 import warnings
 
 import pandas as pd
@@ -26,28 +27,28 @@ warnings.filterwarnings("ignore")
 
 
 # ════════════════════════════════════════════════════════════════
-#  1. 数据加载与特征工程
+#  1. Data loading and feature engineering
 # ════════════════════════════════════════════════════════════════
 
 def load_and_prepare_data() -> pd.DataFrame:
-    """从预处理文件加载特征数据（跳过 raw → engineer_features 重复流程）。
+    """Load feature data from preprocessed file (skip raw → engineer_features pipeline).
 
-    读取 ``data/processed/truck_delay_handled_file.xlsx``，
-    并按 ``trip_start_date`` 时序排序后返回。
+    Reads ``data/processed/truck_delay_handled_file.xlsx``,
+    sorts by ``trip_start_date`` chronologically.
 
     Returns:
-        排序后的完整 DataFrame，含 ``Answer`` 列和全部 61 列特征。
+        Sorted full DataFrame with ``Answer`` column and all 61 feature columns.
     """
     from logistics_delay.data.loader import load_processed
     df = load_processed()
     df_sorted = df.sort_values("trip_start_date").reset_index(drop=True)
-    print(f"[data] 最终形状: {df_sorted.shape}")
-    print(f"[data] 正样本比例: {df_sorted['Answer'].mean():.4f}")
+    print(f"[data] Final shape: {df_sorted.shape}")
+    print(f"[data] Positive rate: {df_sorted['Answer'].mean():.4f}")
     return df_sorted
 
 
 # ════════════════════════════════════════════════════════════════
-#  2. 特征消融 (Leave-One-Out)
+#  2. Feature ablation (Leave-One-Out)
 # ════════════════════════════════════════════════════════════════
 
 _DEFAULT_CB_PARAMS: dict = {
@@ -60,7 +61,7 @@ def _build_cb_model(
     cat_features: list[str] | None,
     extra_params: dict | None = None,
 ) -> CatBoostClassifier:
-    """构建 CatBoostClassifier，融合默认参数 + 调优参数 + 动态参数。"""
+    """Build CatBoostClassifier merging default + tuned + dynamic parameters."""
     params = dict(_DEFAULT_CB_PARAMS)
     if extra_params:
         params.update(extra_params)
@@ -68,6 +69,7 @@ def _build_cb_model(
         class_weights={0: 1.0, 1: spw},
         random_seed=SEED,
         verbose=0,
+        train_dir=tempfile.gettempdir(),
         cat_features=cat_features if cat_features else None,
     )
     return CatBoostClassifier(**params)
@@ -78,43 +80,43 @@ def run_feature_ablation(
     feature_list: list[str] | None = None,
     catboost_params: dict | None = None,
 ) -> pd.DataFrame:
-    """留一法特征消融 (Leave-One-Out)，使用 CatBoost。
+    """Leave-one-out feature ablation using CatBoost.
 
-    按 ``trip_start_date`` 时序 80/20 划分后，
-    先训练全特征模型作为基准，再每次剔除一个特征重新训练，
-    记录 AUC 和 F1 的变化。类别特征通过 ``cat_features`` 传入 CatBoost。
+    After temporal 80/20 split by ``trip_start_date``,
+    First train on all features as baseline, then remove one feature at a time,
+    Record AUC and F1 changes. Pass categorical features via ``cat_features``.
 
     Args:
-        df_sorted: 经 ``load_and_prepare_data`` 处理并按时间排序的 DataFrame。
-        feature_list: 参与消融的特征列表（默认 ``FEATURES_XGB``）。
+        df_sorted: DataFrame sorted by time from ``load_and_prepare_data``.
+        feature_list: Features to ablate (default ``FEATURES_XGB``).
 
     Returns:
-        消融结果 DataFrame，列:
-        - ``removed_feat``: 被剔除的特征名（首行为 ``（基准全特征）``）
-        - ``auc``: 验证集 AUC
-        - ``f1``: 验证集 F1
-        - ``auc_drop``: ``全特征 AUC - 剔除后 AUC``（百分点）。
-          正值表示去掉该特征后性能下降（特征重要），
-          负值表示去掉后性能上升（特征有噪声）。
-        - ``f1_drop``: ``全特征 F1 - 剔除后 F1``（百分点），符号含义同上。
+        Ablation result DataFrame, columns:
+        - ``removed_feat``: Removed feature name (first row is ``(Full Features)``)
+        - ``auc``: Validation AUC
+        - ``f1``: Validation F1
+        - ``auc_drop``: ``Full AUC - Ablated AUC`` (pp).
+          Positive = feature removal degraded performance (feature important),
+          Negative = feature removal improved performance (feature noisy).
+        - ``f1_drop``: ``Full F1 - Ablated F1`` (pp), same sign convention.
     """
     if feature_list is None:
         feature_list = FEATURES_XGB
 
     print("\n" + "=" * 50)
-    print("  特征消融实验 (CatBoost Leave-One-Out)")
+    print("  Feature ablation (CatBoost Leave-One-Out)")
     print("=" * 50)
 
-    # ── 时序划分 80/20 ──
+    # ── Temporal split 80/20 ──
     split_idx = int(len(df_sorted) * 0.8)
     X_train = df_sorted.loc[: split_idx - 1, feature_list].reset_index(drop=True)
     X_test = df_sorted.loc[split_idx:, feature_list].reset_index(drop=True)
     y_train = df_sorted.loc[: split_idx - 1, "Answer"].reset_index(drop=True)
     y_test = df_sorted.loc[split_idx:, "Answer"].reset_index(drop=True)
     spw = len(y_train[y_train == 0]) / len(y_train[y_train == 1])
-    print(f"[split] 训练: {len(y_train)} / 测试: {len(y_test)}, spw={spw:.4f}")
+    print(f"[split] Train: {len(y_train)} / Test: {len(y_test)}, spw={spw:.4f}")
 
-    # ── 全特征基准模型 ──
+    # ── Full-feature baseline model ──
     cat_feats_full = [c for c in XGB_CAT_COLS if c in feature_list]
     model_full = _build_cb_model(spw, cat_feats_full, catboost_params)
     model_full.fit(X_train, y_train)
@@ -124,7 +126,7 @@ def run_feature_ablation(
     full_f1 = f1_score(y_test, y_pred_full)
     print(f"[full] AUC = {full_auc * 100:.2f}%  F1 = {full_f1:.4f}")
 
-    # ── 留一法消融 ──
+    # ── Leave-one-out ablation ──
     results = []
     for feat in feature_list:
         subset = [f for f in feature_list if f != feat]
@@ -146,13 +148,13 @@ def run_feature_ablation(
             "auc_drop": auc_drop_val,
             "f1_drop": f1_drop_val,
         })
-        print(f"  去掉 {feat:<30s}  AUC = {auc * 100:.2f}%  "
+        print(f"  Remove {feat:<30s}  AUC = {auc * 100:.2f}%  "
               f"(drop={auc_drop_val:+.2f}pp)  "
               f"F1 = {f1:.4f}  (drop={f1_drop_val:+.4f}pp)")
 
-    # 插入全特征基准行
+    # Insert full-feature baseline row
     full_row = pd.DataFrame([{
-        "removed_feat": "（全特征基准）",
+        "removed_feat": "(Full Features)",
         "auc": round(full_auc, 6),
         "f1": round(full_f1, 6),
         "auc_drop": 0.0,
@@ -163,46 +165,46 @@ def run_feature_ablation(
 
 
 # ════════════════════════════════════════════════════════════════
-#  3. 地理消融
+#  3. Geographic ablation
 # ════════════════════════════════════════════════════════════════
 
 def run_geo_ablation(
     df_sorted: pd.DataFrame,
     catboost_params: dict | None = None,
 ) -> pd.DataFrame:
-    """地理消融：对比三种距离填充方案对 CatBoost 性能的影响。
+    """Geo ablation: compare three distance imputation strategies on CatBoost.
 
-    三种方案使用完全相同的其他特征和模型超参数，仅对
-    ``TRANSPORTATION_DISTANCE_IN_KM`` 的缺失值采用不同填充策略：
-      - **地理填充**: 使用 ``DistanceFiller`` 地理邻近性填补 + 中位数兜底。
-      - **中位数填充**: 所有缺失值直接使用中位数填充。
-      - **均值填充**: 所有缺失值直接使用均值填充。
+    All three strategies share identical features and hyperparams, only varying
+    how missing ``TRANSPORTATION_DISTANCE_IN_KM`` values are filled:
+      - **Geo**: ``DistanceFiller`` geographic proximity + median fallback.
+      - **Median**: All missing values filled with median.
+      - **Mean**: All missing values filled with mean.
 
     Args:
-        df_sorted: 经 ``load_and_prepare_data`` 处理并按时间排序的 DataFrame。
-           ``_dist_original`` 列由 ``cleaner.fill_distance_geo`` 在预处理时保存，
-           记录地理填充前的原始距离值（含 NaN），标识哪些行的距离是缺失的。
+        df_sorted: DataFrame sorted by time from ``load_and_prepare_data``.
+           The ``_dist_original`` column (saved during preprocessing by ``cleaner.fill_distance_geo``)
+           stores original distances (with NaN) to identify originally missing rows.
 
     Returns:
-        地理消融结果 DataFrame，列:
-        - ``strategy``: 填充方案名称
-        - ``auc``: 验证集 AUC
-        - ``f1``: 验证集 F1
+        Ablation result DataFrame, columns:
+        - ``strategy``: Strategy name
+        - ``auc``: Validation AUC
+        - ``f1``: Validation F1
     """
     print("\n" + "=" * 50)
-    print("  地理消融实验")
+    print("  Geo ablation experiment")
     print("=" * 50)
 
-    # ── 提取原始距离信息 ──
+    # ── Extract original distance info ──
     missing_mask = df_sorted["_dist_original"].isna()
     orig_dist = df_sorted["_dist_original"].values
     non_missing = orig_dist[~missing_mask.values]
     median_val = np.median(non_missing)
     mean_val = np.mean(non_missing)
-    print(f"  缺失距离: {missing_mask.sum()} / {len(orig_dist)}")
-    print(f"  中位数: {median_val:.2f}, 均值: {mean_val:.2f}")
+    print(f"  Missing distance: {missing_mask.sum()} / {len(orig_dist)}")
+    print(f"  Median: {median_val:.2f}, Mean: {mean_val:.2f}")
 
-    # ── 三种策略 ──
+    # ── Three strategies ──
     strategies: dict[str, float | None] = {
         "geo": None,
         "median": median_val,
@@ -223,10 +225,10 @@ def run_geo_ablation(
         df_copy = df_sorted.copy()
 
         if fill_value is None:
-            # 地理填充：使用 df_sorted 已有的地理 + 中位数兜底值（不变）
+            # Geo fill: use existing geo + median fallback values from df_sorted
             pass
         else:
-            # 中位数 / 均值填充
+            # Median / Mean fill
             dist_col = orig_dist.copy()
             dist_col[missing_mask.values] = fill_value
             df_copy["TRANSPORTATION_DISTANCE_IN_KM"] = dist_col
@@ -258,22 +260,22 @@ def save_geo_results(
     geo_df: pd.DataFrame,
     save_dir: str | os.PathLike | None = None,
 ) -> None:
-    """将地理消融结果保存为 CSV。
+    """Save geo ablation results to CSV.
 
     Args:
-        geo_df: ``run_geo_ablation`` 返回的 DataFrame。
-        save_dir: 保存目录（默认 ``TABLES_DIR``）。
+        geo_df: DataFrame returned by ``run_geo_ablation``.
+        save_dir: Save directory (default ``TABLES_DIR``).
     """
     if save_dir is None:
         save_dir = TABLES_DIR
     os.makedirs(save_dir, exist_ok=True)
     path = os.path.join(save_dir, "geo_ablation_results.csv")
     geo_df.to_csv(path, index=False, encoding="utf-8-sig")
-    print(f"[OK] 地理消融结果 → {path}")
+    print(f"[OK] Geo ablation results → {path}")
 
 
 # ════════════════════════════════════════════════════════════════
-#  4. 累积特征学习曲线
+#  4. Cumulative feature learning curves
 # ════════════════════════════════════════════════════════════════
 
 def run_learning_curves(
@@ -282,48 +284,48 @@ def run_learning_curves(
     ablation_df: pd.DataFrame | None = None,
     catboost_params: dict | None = None,
 ) -> pd.DataFrame:
-    """累积特征学习曲线。
+    """Cumulative feature learning curves.
 
-    先通过 ``run_feature_ablation`` 按 ``auc_drop`` 从大到小得到特征重要性排序，
-    然后从最重要的特征开始依次累积加入，每加入一个特征就用 CatBoost 时序划分
-    训练一次并记录 AUC，直到加入全部特征。
+    First rank features by ``auc_drop`` descending via ``run_feature_ablation``,
+    then cumulatively add features from most to least important, training CatBoost
+    with temporal split at each step, recording AUC.
 
     Args:
-        df_sorted: 经 ``load_and_prepare_data`` 处理并按时间排序的 DataFrame。
-        feature_list: 特征列表（默认 ``FEATURES_XGB``）。
+        df_sorted: DataFrame sorted by time from ``load_and_prepare_data``.
+        feature_list: Feature list (default ``FEATURES_XGB``).
 
     Returns:
-        学习曲线结果 DataFrame，列:
-        - ``feature_added``: 本轮新加入的特征名
-        - ``n_features``: 当前已加入特征数量
-        - ``auc``: 验证集 AUC
+        Learning curve DataFrame, columns:
+        - ``feature_added``: Feature added this round
+        - ``n_features``: Current feature count
+        - ``auc``: Validation AUC
     """
     if feature_list is None:
         feature_list = FEATURES_XGB
 
     print("\n" + "=" * 50)
-    print("  累积特征学习曲线")
+    print("  Cumulative feature learning curves")
     print("=" * 50)
 
-    # ── 1. 通过消融结果获取特征重要性排序 ──
+    # ── 1. Get feature importance ranking from ablation ──
     if ablation_df is None:
         ablation_df = run_feature_ablation(df_sorted, feature_list)
-    imp_df = ablation_df[ablation_df["removed_feat"] != "（全特征基准）"].copy()
+    imp_df = ablation_df[ablation_df["removed_feat"] != "(Full Features)"].copy()
     imp_df = imp_df.sort_values("auc_drop", ascending=False)
     feature_order = imp_df["removed_feat"].tolist()
-    print(f"\n  特征加入顺序（按 auc_drop 降序）:")
+    print(f"\n  Feature addition order (by auc_drop descending):")
     for i, f in enumerate(feature_order, 1):
         print(f"    {i:>2d}. {f}")
 
-    # ── 2. 时序划分 ──
+    # ── 2. Temporal split ──
     split_idx = int(len(df_sorted) * 0.8)
     y_train = df_sorted.loc[: split_idx - 1, "Answer"].reset_index(drop=True)
     y_test = df_sorted.loc[split_idx:, "Answer"].reset_index(drop=True)
     cat_feats_all = [c for c in XGB_CAT_COLS if c in feature_list]
 
-    print(f"\n[split] 训练: {split_idx} / 测试: {len(df_sorted) - split_idx}")
+    print(f"\n[split] Train: {split_idx} / Test: {len(df_sorted) - split_idx}")
 
-    # ── 3. 累积加入特征 ──
+    # ── 3. Cumulative feature addition ──
     records = []
     cumulative: list[str] = []
     for feat in feature_order:
@@ -349,7 +351,7 @@ def run_learning_curves(
 
 
 # ════════════════════════════════════════════════════════════════
-#  5. 结果保存
+#  5. Result saving
 # ════════════════════════════════════════════════════════════════
 
 def save_results(
@@ -357,14 +359,14 @@ def save_results(
     lc_df: pd.DataFrame,
     save_dir: str | os.PathLike | None = None,
 ) -> None:
-    """将特征消融和学习曲线结果保存为 CSV。
+    """Save feature ablation and learning curve results to CSV.
 
     Args:
-        ablation_df: ``run_feature_ablation`` 返回的 DataFrame。
-            ``auc_drop`` = 全特征 AUC - 剔除后 AUC（正 = 性能下降，负 = 性能提升）。
-        lc_df: ``run_learning_curves`` 返回的 DataFrame。
-            含 ``feature_added``、``n_features``、``auc`` 三列。
-        save_dir: 保存目录（默认 ``TABLES_DIR``）。
+        ablation_df: DataFrame from ``run_feature_ablation``.
+            ``auc_drop`` = Full AUC - Ablated AUC (positive = degradation, negative = improvement).
+        lc_df: DataFrame from ``run_learning_curves``.
+            Contains ``feature_added``, ``n_features``, ``auc`` columns.
+        save_dir: Save directory (default ``TABLES_DIR``).
     """
     if save_dir is None:
         save_dir = TABLES_DIR
@@ -377,17 +379,17 @@ def save_results(
     ablation_df.to_csv(ablation_path, index=False, encoding="utf-8-sig")
     lc_df.to_csv(lc_path, index=False, encoding="utf-8-sig")
 
-    print(f"\n[OK] 特征消融结果 → {ablation_path}")
-    print(f"[OK] 学习曲线结果 → {lc_path}")
+    print(f"\n[OK] Feature ablation results → {ablation_path}")
+    print(f"[OK] Learning curve results → {lc_path}")
 
 
 # ════════════════════════════════════════════════════════════════
-#  主入口
+#  Main entry
 # ════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("  消融实验脚本 — 主入口")
+    print("  Ablation script — main entry")
     print("=" * 60)
 
     df_sorted = load_and_prepare_data()
@@ -400,5 +402,5 @@ if __name__ == "__main__":
     save_geo_results(geo_results)
 
     print("\n" + "=" * 60)
-    print("  全部完成")
+    print("  All complete")
     print("=" * 60)
