@@ -5,13 +5,12 @@
 [![XGBoost](https://img.shields.io/badge/XGBoost-3.2-red.svg)](https://xgboost.readthedocs.io)
 [![LightGBM](https://img.shields.io/badge/LightGBM-4.6-green.svg)](https://lightgbm.readthedocs.io)
 [![CatBoost](https://img.shields.io/badge/CatBoost-1.2-yellow.svg)](https://catboost.ai)
+[![Optuna](https://img.shields.io/badge/Optuna-4.8-blueviolet.svg)](https://optuna.org)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 
-Truck delivery delay prediction using ensemble machine learning, with temporal cross-validation, hyperparameter tuning, and SHAP model interpretation.
+Truck delivery delay prediction using ensemble machine learning, with temporal cross-validation, hyperparameter tuning (two-stage + Optuna), and SHAP model interpretation.
 
 ---
-
-### 🇬🇧 English
 
 This project predicts whether a truck delivery will be delayed based on information known **at the time of order creation** — transportation distance, vehicle type, origin/destination locations, and temporal features (weekday, month). No future-leaking features (e.g. actual trip duration) are used.
 
@@ -20,22 +19,9 @@ This project predicts whether a truck delivery will be delayed based on informat
 - **6 models compared**: Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost
 - **Temporal cross-validation**: TimeSeriesSplit (5-fold) to respect chronological order
 - **Two-stage hyperparameter tuning**: RandomizedSearchCV coarse search → GridSearchCV fine search
+- **Optuna hyperparameter optimization**: TPE sampler + MedianPruner for efficient search (100+ trials per model)
 - **SHAP interpretation**: Global and local feature importance for tree-based models
 - **Feature ablation**: Leave-one-out analysis to quantify each feature's contribution
-
----
-
-### 🇳🇱 Nederlands
-
-Dit project voorspelt of een vrachtwagenlevering vertraging oploopt, uitsluitend op basis van informatie die **op het moment van ordercreatie** bekend is — transportafstand, voertuigtype, herkomst/bestemming en temporele kenmerken (weekdag, maand). Er worden geen toekomstgegevens (zoals werkelijke reisduur) gebruikt.
-
-**Overzicht van de aanpak:**
-
-- **6 modellen vergeleken**: Logistic Regression, Decision Tree, Random Forest, XGBoost, LightGBM, CatBoost
-- **Temporele kruisvalidatie**: TimeSeriesSplit (5-voud) met behoud van chronologische volgorde
-- **Tweetraps hyperparameteroptimalisatie**: RandomizedSearchCV grof → GridSearchCV fijn
-- **SHAP-analyse**: Globale en lokale feature-importance voor boommodellen
-- **Feature-ablatie**: Leave-one-out-analyse om elke feature-bijdrage te kwantificeren
 
 ---
 
@@ -45,7 +31,7 @@ Dit project voorspelt of een vrachtwagenlevering vertraging oploopt, uitsluitend
 # Install from source (editable, recommended for development)
 
 git clone https://github.com/BROOKSHEAR/Logistics_Delay_Project
-cd logistics_delay_project
+cd Logistics_Delay_Project
 pip install -e .
 
 # With dev dependencies
@@ -93,36 +79,37 @@ print(f"AUC: {result['auc']:.4f}  F1: {result['f1']:.4f}")
 
 ```
 src/logistics_delay/
-├── data/                  # Data loading & cleaning
-│   ├── loader.py          # load_raw_data(), load_processed()
-│   └── cleaner.py         # Conflict resolution, missing value imputation
-├── features/              # Feature engineering
-│   ├── engineering.py     # engineer_features(), get_feature_lists()
-│   └── distance_fill_geo.py  # Geographic distance imputation
-├── models/                # Training, evaluation, tuning, comparison
-│   ├── train.py           # random_split(), temporal_split()
-│   ├── evaluate.py        # evaluate(), get_model()
-│   ├── tuning.py          # Two-stage hyperparameter search
-│   └── comparison.py      # TimeSeriesSplit + Bootstrap CI
-├── interpretation/        # Model explainability
-│   └── shap_analysis.py   # SHAP beeswarm & bar plots
-├── ablation/              # Feature & geographic ablation
-│   └── ablation.py        # Leave-one-out feature ablation
-└── utils/                 # Configuration
-    └── paths.py           # Project paths, constants, seeds
+├── data/                    # Data loading & cleaning
+│   ├── loader.py            # load_raw_data(), load_processed()
+│   └── cleaner.py           # Conflict resolution, missing value imputation
+├── features/                # Feature engineering
+│   ├── engineering.py       # engineer_features(), get_feature_lists()
+│   └── distance_fill_geo.py # Geographic distance imputation
+├── models/                  # Training, evaluation, tuning, comparison
+│   ├── train.py             # random_split(), temporal_split()
+│   ├── evaluate.py          # evaluate(), get_model()
+│   ├── tuning.py            # Two-stage hyperparameter search
+│   ├── optuna_tuning.py     # Optuna hyperparameter optimization
+│   └── comparison.py        # TimeSeriesSplit + Bootstrap CI
+├── interpretation/          # Model explainability
+│   └── shap_analysis.py     # SHAP beeswarm & bar plots
+├── ablation/                # Feature & geographic ablation
+│   └── ablation.py          # Leave-one-out feature ablation
+├── utils/                   # Configuration
+│   └── paths.py             # Project paths, constants, seeds
+├── run_tuning.py            # Full tuning orchestrator (two-stage + Optuna)
+├── run_two_stage_tuning.py  # Two-stage tuning only
+├── run_optuna_lgbm.py       # LightGBM-only Optuna (study pickle for visualization)
+├── run_analysis.py          # Analysis pipeline (ablation, comparison, SHAP)
+└── run_all.py               # Full pipeline: tuning → analysis
 
 notebooks/
-├── 01_eda.ipynb           # Exploratory data analysis
-├── 02_features.ipynb      # Feature engineering walkthrough
-├── 03_modeling.ipynb      # Default-parameter model training
-├── 04_tuning.ipynb        # Hyperparameter tuning + default vs tuned comparison
-├── 05_ablation_viz.ipynb  # Feature ablation visualisation
-└── 06_shap.ipynb          # Model comparison + SHAP analysis
-
-tests/
-├── test_geo_logic.py      # Unit tests for geographic logic
-└── test_quick_start.py    # Quick Start integration tests
-
+├── 01_eda.ipynb             # Exploratory data analysis
+├── 02_features.ipynb        # Feature engineering walkthrough
+├── 03_modeling.ipynb        # Default-parameter model training
+├── 04_tuning.ipynb          # Hyperparameter tuning + default vs tuned comparison
+├── 05_ablation_viz.ipynb    # Feature ablation visualisation
+└── 06_shap.ipynb            # Model comparison + SHAP analysis
 ```
 
 ## Dataset

@@ -24,6 +24,7 @@ dependencies = [
     "matplotlib",
     "seaborn",
     "shap",
+    "optuna",
 ]
 
 classifiers = [

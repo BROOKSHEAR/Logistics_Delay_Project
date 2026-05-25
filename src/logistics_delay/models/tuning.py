@@ -398,7 +398,7 @@ def run_two_stage_search(
 # ════════════════════════════════════════════════════════════════
 
 def save_tuning_results(results_df, save_dir=None):
-    """Save tuning results to CSV.
+    """Save tuning results to CSV (includes best_params as readable string).
 
     Args:
         results_df: DataFrame summarized from dicts returned by
@@ -409,5 +409,13 @@ def save_tuning_results(results_df, save_dir=None):
         save_dir = TABLES_DIR
     os.makedirs(save_dir, exist_ok=True)
     path = os.path.join(save_dir, "tuning_results.csv")
-    results_df.to_csv(path, index=False, encoding="utf-8-sig")
+    df = results_df.copy()
+    if "best_params" in df.columns:
+        df["best_params"] = df["best_params"].apply(
+            lambda d: ", ".join(
+                f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}"
+                for k, v in d.items()
+            ) if isinstance(d, dict) else str(d)
+        )
+    df.to_csv(path, index=False, encoding="utf-8-sig")
     print(f"\n[OK] Tuning results saved → {path}")
